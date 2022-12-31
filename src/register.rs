@@ -6,6 +6,23 @@ pub trait RegisterSet<R: RegisterCode> {
     fn write_of(&mut self, code: R, bits: Self::Size);
 }
 
+pub trait RegisterFlag {
+    type Flag;
+    fn flag_get(&self, flag: Self::Flag) -> bool;
+    fn flag_change(&mut self, flag: Self::Flag, set: bool);
+    fn flag_set(&mut self, flag: Self::Flag) {
+        self.flag_change(flag, true);
+    }
+    fn flag_reset(&mut self, flag: Self::Flag) {
+        self.flag_change(flag, false);
+    }
+    fn flag_change_in(&mut self, flag_statuses: Vec<(Self::Flag, bool)>) {
+        for (flag, set) in flag_statuses {
+            self.flag_change(flag, set)
+        }
+    }
+}
+
 pub trait Register {
     type Size;
     fn write(&mut self, bits: Self::Size);
@@ -66,7 +83,7 @@ mod tests {
     use super::*;
 
     #[derive(Default, Debug)]
-    struct Register16s {
+    struct Register16Set {
         af: Register16,
         hl: Register16,
     }
@@ -78,7 +95,6 @@ mod tests {
 
     enum Register8Code {
         A,
-        F,
         H,
         L,
     }
@@ -87,7 +103,7 @@ mod tests {
         fn is_low(&self) -> bool {
             match self {
                 Register8Code::A | Register8Code::H => false,
-                Register8Code::F | Register8Code::L => true,
+                Register8Code::L => true,
             }
         }
     }
@@ -96,7 +112,7 @@ mod tests {
 
     impl RegisterCode for Register8Code {}
 
-    impl RegisterSet<Register16Code> for Register16s {
+    impl RegisterSet<Register16Code> for Register16Set {
         type Size = u16;
 
         fn load_of(&self, code: Register16Code) -> Self::Size {
@@ -114,12 +130,12 @@ mod tests {
         }
     }
 
-    impl RegisterSet<Register8Code> for Register16s {
+    impl RegisterSet<Register8Code> for Register16Set {
         type Size = u8;
 
         fn load_of(&self, code: Register8Code) -> Self::Size {
             let register = match code {
-                Register8Code::A | Register8Code::F => &self.af,
+                Register8Code::A => &self.af,
                 Register8Code::H | Register8Code::L => &self.hl,
             };
             Register16In8Loader {
@@ -130,13 +146,58 @@ mod tests {
 
         fn write_of(&mut self, code: Register8Code, bits: Self::Size) {
             let register = match code {
-                Register8Code::A | Register8Code::F => &mut self.af,
+                Register8Code::A => &mut self.af,
                 Register8Code::H | Register8Code::L => &mut self.hl,
             };
             Register16In8Writer {
                 low: code.is_low(),
                 register,
             }.write(bits)
+        }
+    }
+
+    enum Flag {
+        Overflow = 1,
+        Neg = 2,
+    }
+
+    pub(crate) struct Register16FlagWriter<'a> {
+        register: &'a mut Register16,
+        flag_bit: u8,
+    }
+
+    impl<'a> Register16FlagWriter<'a> {
+        fn write(&mut self, set: bool) {
+            let t = Register16In8Loader { register: self.register, low: true }.load();
+            if set {
+                Register16In8Writer { register: self.register, low: true }.write(t | self.flag_bit);
+            } else {
+                Register16In8Writer { register: self.register, low: true }.write(t & !self.flag_bit);
+            }
+        }
+    }
+
+    impl RegisterFlag for Register16Set {
+        type Flag = Flag;
+
+        fn flag_get(&self, flag: Self::Flag) -> bool {
+            let flag_bit: u8 = unsafe {
+                std::mem::transmute(flag)
+            };
+            (Register16In8Loader {
+                register: &self.af,
+                low: true,
+            }.load() & flag_bit) == flag_bit
+        }
+
+        fn flag_change(&mut self, flag: Self::Flag, set: bool) {
+            let flag_bit = unsafe {
+                std::mem::transmute(flag)
+            };
+            Register16FlagWriter {
+                register: &mut self.af,
+                flag_bit,
+            }.write(set)
         }
     }
 
@@ -163,15 +224,31 @@ mod tests {
     fn register_set() {
         use self::Register8Code::*;
         use self::Register16Code::*;
-        let mut regs = Register16s::default();
+        let mut regs = Register16Set::default();
         regs.write_of(AF, 0x1234);
         assert_eq!(regs.load_of(AF), 0x1234);
         regs.write_of(A, 0x56);
         assert_eq!(regs.load_of(AF), 0x5634);
-        regs.write_of(F, 0x78);
-        assert_eq!(regs.load_of(AF), 0x5678);
         regs.write_of(HL, 0x9abc);
         assert_eq!(regs.load_of(H), 0x9a);
         assert_eq!(regs.load_of(L), 0xbc);
+    }
+
+    #[test]
+    fn register_flag() {
+        use self::Register16Code::*;
+        use self::Flag::*;
+        let mut regs = Register16Set::default();
+        regs.write_of(AF, 0x0000);
+        regs.flag_set(Overflow);
+        assert!(regs.flag_get(Overflow));
+        regs.flag_set(Neg);
+        assert!(regs.flag_get(Neg));
+        regs.flag_change_in(vec![
+            (Overflow, false),
+            (Neg, true),
+        ]);
+        assert!(!regs.flag_get(Overflow));
+        assert!(regs.flag_get(Neg));
     }
 }
