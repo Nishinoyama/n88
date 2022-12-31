@@ -1,6 +1,4 @@
-pub trait RegisterCode {
-    type Register: Register;
-}
+pub trait RegisterCode {}
 
 pub trait RegisterSet<R: RegisterCode> {
     type Size;
@@ -94,13 +92,9 @@ mod tests {
         }
     }
 
-    impl RegisterCode for Register16Code {
-        type Register = Register16;
-    }
+    impl RegisterCode for Register16Code {}
 
-    impl RegisterCode for Register8Code {
-        type Register = Register16;
-    }
+    impl RegisterCode for Register8Code {}
 
     impl RegisterSet<Register16Code> for Register16s {
         type Size = u16;
