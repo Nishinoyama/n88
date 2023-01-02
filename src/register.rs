@@ -1,9 +1,10 @@
-pub trait RegisterCode {}
+pub trait RegisterCode {
+    type Size;
+}
 
 pub trait RegisterSet<R: RegisterCode> {
-    type Size;
-    fn read_of(&self, code: R) -> Self::Size;
-    fn load_of(&mut self, code: R, bits: Self::Size);
+    fn read_of(&self, code: R) -> <R as RegisterCode>::Size;
+    fn load_of(&mut self, code: R, bits: <R as RegisterCode>::Size);
 }
 
 pub trait RegisterFlag {
@@ -108,21 +109,23 @@ mod tests {
         }
     }
 
-    impl RegisterCode for Register16Code {}
+    impl RegisterCode for Register16Code {
+        type Size = u16;
+    }
 
-    impl RegisterCode for Register8Code {}
+    impl RegisterCode for Register8Code {
+        type Size = u8;
+    }
 
     impl RegisterSet<Register16Code> for Register16Set {
-        type Size = u16;
-
-        fn read_of(&self, code: Register16Code) -> Self::Size {
+        fn read_of(&self, code: Register16Code) -> u16 {
             match code {
                 Register16Code::AF => self.af.read(),
                 Register16Code::HL => self.hl.read(),
             }
         }
 
-        fn load_of(&mut self, code: Register16Code, bits: Self::Size) {
+        fn load_of(&mut self, code: Register16Code, bits: u16) {
             match code {
                 Register16Code::AF => self.af.load(bits),
                 Register16Code::HL => self.hl.load(bits),
@@ -131,9 +134,7 @@ mod tests {
     }
 
     impl RegisterSet<Register8Code> for Register16Set {
-        type Size = u8;
-
-        fn read_of(&self, code: Register8Code) -> Self::Size {
+        fn read_of(&self, code: Register8Code) -> u8 {
             let register = match code {
                 Register8Code::A => &self.af,
                 Register8Code::H | Register8Code::L => &self.hl,
@@ -144,7 +145,7 @@ mod tests {
             }.load()
         }
 
-        fn load_of(&mut self, code: Register8Code, bits: Self::Size) {
+        fn load_of(&mut self, code: Register8Code, bits: u8) {
             let register = match code {
                 Register8Code::A => &mut self.af,
                 Register8Code::H | Register8Code::L => &mut self.hl,
