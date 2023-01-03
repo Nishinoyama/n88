@@ -22,3 +22,5 @@ pub mod register;
 pub mod instruction;
 
 pub mod alu;
+
+pub mod memory;
