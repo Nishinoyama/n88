@@ -2,26 +2,16 @@ pub trait RegisterCode {
     type Size;
 }
 
+#[allow(clippy::needless_lifetimes)]
 pub trait RegisterSet<R: RegisterCode> {
-    fn read_of(&self, code: R) -> <R as RegisterCode>::Size;
-    fn load_of(&mut self, code: R, bits: <R as RegisterCode>::Size);
-}
-
-pub trait RegisterFlag {
-    type Flag;
-    fn flag_get(&self, flag: Self::Flag) -> bool;
-    fn flag_change(&mut self, flag: Self::Flag, set: bool);
-    fn flag_set(&mut self, flag: Self::Flag) {
-        self.flag_change(flag, true);
-    }
-    fn flag_reset(&mut self, flag: Self::Flag) {
-        self.flag_change(flag, false);
-    }
-    fn flag_change_in(&mut self, flag_statuses: Vec<(Self::Flag, bool)>) {
-        for (flag, set) in flag_statuses {
-            self.flag_change(flag, set)
-        }
-    }
+    type Loader<'a>
+    where
+        Self: 'a;
+    type Reader<'a>
+    where
+        Self: 'a;
+    fn loader_of<'a>(&'a mut self, code: R) -> Self::Loader<'a>;
+    fn reader_of<'a>(&'a self, code: R) -> Self::Reader<'a>;
 }
 
 pub trait Register {
@@ -47,13 +37,25 @@ impl Register for Register16 {
     }
 }
 
-pub(crate) struct Register16In8Writer<'a> {
+pub trait RegisterLoader {
+    type Size;
+    fn load(&mut self, bits: Self::Size);
+}
+
+pub struct Register16In8Loader<'a> {
     pub register: &'a mut Register16,
     pub low: bool,
 }
 
-impl<'a> Register16In8Writer<'a> {
-    pub(crate) fn write(&mut self, bits: u8) {
+impl<'a> Register16In8Loader<'a> {
+    pub fn new(register: &'a mut Register16, low: bool) -> Self {
+        Self { register, low }
+    }
+}
+
+impl<'a> RegisterLoader for Register16In8Loader<'a> {
+    type Size = u8;
+    fn load(&mut self, bits: Self::Size) {
         let t = if self.low {
             self.register.read() & (!0x00ff) | (bits as u16)
         } else {
@@ -63,19 +65,65 @@ impl<'a> Register16In8Writer<'a> {
     }
 }
 
-pub(crate) struct Register16In8Loader<'a> {
+pub struct Register16Loader<'a> {
+    pub register: &'a mut Register16,
+}
+
+impl<'a> Register16Loader<'a> {
+    pub fn new(register: &'a mut Register16) -> Self {
+        Self { register }
+    }
+}
+
+impl<'a> RegisterLoader for Register16Loader<'a> {
+    type Size = u16;
+    fn load(&mut self, bits: u16) {
+        self.register.load(bits)
+    }
+}
+
+pub trait RegisterReader {
+    type Size;
+    fn read(&self) -> Self::Size;
+}
+
+pub struct Register16In8Reader<'a> {
     pub register: &'a Register16,
     pub low: bool,
 }
 
-impl<'a> Register16In8Loader<'a> {
-    pub(crate) fn load(&self) -> u8 {
+impl<'a> RegisterReader for Register16In8Reader<'a> {
+    type Size = u8;
+    fn read(&self) -> Self::Size {
         let t = self.register.read();
         if self.low {
             (t & 0x00ff) as u8
         } else {
             (t >> 8) as u8
         }
+    }
+}
+
+impl<'a> Register16In8Reader<'a> {
+    pub fn new(register: &'a Register16, low: bool) -> Self {
+        Self { register, low }
+    }
+}
+
+pub struct Register16Reader<'a> {
+    pub register: &'a Register16,
+}
+
+impl<'a> RegisterReader for Register16Reader<'a> {
+    type Size = u16;
+    fn read(&self) -> Self::Size {
+        self.register.read()
+    }
+}
+
+impl<'a> Register16Reader<'a> {
+    pub fn new(register: &'a Register16) -> Self {
+        Self { register }
     }
 }
 
@@ -117,43 +165,44 @@ mod tests {
         type Size = u8;
     }
 
+    #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register16Code> for Register16Set {
-        fn read_of(&self, code: Register16Code) -> u16 {
-            match code {
-                Register16Code::AF => self.af.read(),
-                Register16Code::HL => self.hl.read(),
-            }
-        }
+        type Loader<'a> = Register16Loader<'a>;
+        type Reader<'a> = Register16Reader<'a>;
 
-        fn load_of(&mut self, code: Register16Code, bits: u16) {
-            match code {
-                Register16Code::AF => self.af.load(bits),
-                Register16Code::HL => self.hl.load(bits),
-            }
+        fn loader_of<'a>(&'a mut self, code: Register16Code) -> Self::Loader<'a> {
+            Register16Loader::new(match code {
+                Register16Code::AF => &mut self.af,
+                Register16Code::HL => &mut self.hl,
+            })
+        }
+        fn reader_of<'a>(&'a self, code: Register16Code) -> Self::Reader<'a> {
+            Register16Reader::new(match code {
+                Register16Code::AF => &self.af,
+                Register16Code::HL => &self.hl,
+            })
         }
     }
 
+    #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register8Code> for Register16Set {
-        fn read_of(&self, code: Register8Code) -> u8 {
-            let register = match code {
-                Register8Code::A => &self.af,
-                Register8Code::H | Register8Code::L => &self.hl,
-            };
-            Register16In8Loader {
-                low: code.is_low(),
-                register,
-            }.load()
-        }
+        type Loader<'a> = Register16In8Loader<'a>;
+        type Reader<'a> = Register16In8Reader<'a>;
 
-        fn load_of(&mut self, code: Register8Code, bits: u8) {
+        fn loader_of<'a>(&'a mut self, code: Register8Code) -> Self::Loader<'a> {
             let register = match code {
                 Register8Code::A => &mut self.af,
                 Register8Code::H | Register8Code::L => &mut self.hl,
             };
-            Register16In8Writer {
-                low: code.is_low(),
-                register,
-            }.write(bits)
+            Register16In8Loader::new(register, code.is_low())
+        }
+
+        fn reader_of<'a>(&'a self, code: Register8Code) -> Self::Reader<'a> {
+            let register = match code {
+                Register8Code::A => &self.af,
+                Register8Code::H | Register8Code::L => &self.hl,
+            };
+            Register16In8Reader::new(register, code.is_low())
         }
     }
 
@@ -169,36 +218,24 @@ mod tests {
 
     impl<'a> Register16FlagWriter<'a> {
         fn write(&mut self, set: bool) {
-            let t = Register16In8Loader { register: self.register, low: true }.load();
-            if set {
-                Register16In8Writer { register: self.register, low: true }.write(t | self.flag_bit);
-            } else {
-                Register16In8Writer { register: self.register, low: true }.write(t & !self.flag_bit);
-            }
-        }
-    }
-
-    impl RegisterFlag for Register16Set {
-        type Flag = Flag;
-
-        fn flag_get(&self, flag: Self::Flag) -> bool {
-            let flag_bit: u8 = unsafe {
-                std::mem::transmute(flag)
-            };
-            (Register16In8Loader {
-                register: &self.af,
+            let t = Register16In8Reader {
+                register: self.register,
                 low: true,
-            }.load() & flag_bit) == flag_bit
-        }
-
-        fn flag_change(&mut self, flag: Self::Flag, set: bool) {
-            let flag_bit = unsafe {
-                std::mem::transmute(flag)
-            };
-            Register16FlagWriter {
-                register: &mut self.af,
-                flag_bit,
-            }.write(set)
+            }
+            .read();
+            if set {
+                Register16In8Loader {
+                    register: self.register,
+                    low: true,
+                }
+                .load(t | self.flag_bit);
+            } else {
+                Register16In8Loader {
+                    register: self.register,
+                    low: true,
+                }
+                .load(t & !self.flag_bit);
+            }
         }
     }
 
@@ -207,49 +244,31 @@ mod tests {
         let mut reg = Register16::default();
         reg.load(0x1234);
         assert_eq!(reg.read(), 0x1234);
-        let mut reg_mod = Register16In8Writer {
+        let mut reg_mod = Register16In8Loader {
             register: &mut reg,
             low: true,
         };
-        reg_mod.write(0x56);
+        reg_mod.load(0x56);
         assert_eq!(reg.read(), 0x1256);
-        let mut reg_mod = Register16In8Writer {
+        let mut reg_mod = Register16In8Loader {
             register: &mut reg,
             low: false,
         };
-        reg_mod.write(0x78);
+        reg_mod.load(0x78);
         assert_eq!(reg.read(), 0x7856);
     }
 
     #[test]
     fn register_set() {
+        use self::Register16Code::*;
         use self::Register8Code::*;
-        use self::Register16Code::*;
         let mut regs = Register16Set::default();
-        regs.load_of(AF, 0x1234);
-        assert_eq!(regs.read_of(AF), 0x1234);
-        regs.load_of(A, 0x56);
-        assert_eq!(regs.read_of(AF), 0x5634);
-        regs.load_of(HL, 0x9abc);
-        assert_eq!(regs.read_of(H), 0x9a);
-        assert_eq!(regs.read_of(L), 0xbc);
-    }
-
-    #[test]
-    fn register_flag() {
-        use self::Register16Code::*;
-        use self::Flag::*;
-        let mut regs = Register16Set::default();
-        regs.load_of(AF, 0x0000);
-        regs.flag_set(Overflow);
-        assert!(regs.flag_get(Overflow));
-        regs.flag_set(Neg);
-        assert!(regs.flag_get(Neg));
-        regs.flag_change_in(vec![
-            (Overflow, false),
-            (Neg, true),
-        ]);
-        assert!(!regs.flag_get(Overflow));
-        assert!(regs.flag_get(Neg));
+        regs.loader_of(AF).load(0x1234);
+        assert_eq!(regs.reader_of(AF).read(), 0x1234);
+        regs.loader_of(A).load(0x56);
+        assert_eq!(regs.reader_of(AF).read(), 0x5634);
+        regs.loader_of(HL).load(0x9abc);
+        assert_eq!(regs.reader_of(H).read(), 0x9a);
+        assert_eq!(regs.reader_of(L).read(), 0xbc);
     }
 }
