@@ -20,3 +20,5 @@ impl BitwiseOps for usize {}
 pub mod register;
 
 pub mod instruction;
+
+pub mod alu;
