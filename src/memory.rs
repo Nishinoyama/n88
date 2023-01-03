@@ -10,6 +10,16 @@ pub struct Memory8Bit64KB {
     bytes: [u8; 65536],
 }
 
+impl Memory8Bit64KB {
+    fn new(bytes: &[u8]) -> Self {
+        let mut mem = Self::default();
+        for (i, &x) in bytes.iter().enumerate() {
+            mem.store(i as u16, x);
+        }
+        mem
+    }
+}
+
 impl Default for Memory8Bit64KB {
     fn default() -> Self {
         Memory8Bit64KB {
