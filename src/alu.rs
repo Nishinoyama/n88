@@ -40,6 +40,12 @@ impl<B: BitwiseOps> From<B> for FlagSetBits<B> {
     }
 }
 
+impl<B: BitwiseOps> FlagSetBits<B> {
+    pub fn bits(&self) -> B {
+        self.0
+    }
+}
+
 pub trait ALU {
     type Data;
     type Control;

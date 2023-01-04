@@ -24,3 +24,5 @@ pub mod instruction;
 pub mod alu;
 
 pub mod memory;
+
+pub mod cpu;
