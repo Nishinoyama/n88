@@ -69,17 +69,17 @@ pub mod typical {
         }
     }
 
-    impl From<FlagSetBits<u8>> for u8 {
-        fn from(b: FlagSetBits<u8>) -> Self {
-            b.0
-        }
+    macro_rules! from_flag_set_bits_b_to_b_impl {
+        ($($t:ty)*) => {$(
+            impl From<FlagSetBits<$t>> for $t {
+                fn from(b: FlagSetBits<$t>) -> Self {
+                    b.0
+                }
+            }
+        )*}
     }
 
-    impl<B: BitwiseOps> FlagSetBits<B> {
-        pub fn bits(&self) -> B {
-            self.0
-        }
-    }
+    from_flag_set_bits_b_to_b_impl!(u8 u16 u32 u64 usize);
 }
 
 #[cfg(test)]

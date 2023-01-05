@@ -298,13 +298,13 @@ mod tests {
                 Inst::Add(lhs) => {
                     let lhs = cpu.reader_of(*lhs).read();
                     let (res, flag) = cpu.alu_acc_op(false, lhs);
-                    cpu.flag_loader().load(flag.bits());
+                    cpu.flag_loader().load(flag.into());
                     cpu.acc_loader().load(res);
                 }
                 Inst::Sub(lhs) => {
                     let lhs = cpu.reader_of(*lhs).read();
                     let (res, flag) = cpu.alu_acc_op(false, lhs);
-                    cpu.flag_loader().load(flag.bits());
+                    cpu.flag_loader().load(flag.into());
                     cpu.acc_loader().load(res);
                 }
                 Inst::Nop => {}

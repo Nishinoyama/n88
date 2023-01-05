@@ -13,26 +13,17 @@ pub trait BitwiseOps:
     const ALL_ON: Self;
     const ALL_OFF: Self;
 }
-impl BitwiseOps for u8 {
-    const ALL_ON: Self = u8::MAX;
-    const ALL_OFF: Self = u8::MIN;
+
+macro_rules! bitwise_ops_impl {
+    ($($t:ty)*) => {$(
+        impl BitwiseOps for $t {
+            const ALL_ON: Self = <$t>::MAX;
+            const ALL_OFF: Self = <$t>::MIN;
+        }
+    )*}
 }
-impl BitwiseOps for u16 {
-    const ALL_ON: Self = u16::MAX;
-    const ALL_OFF: Self = u16::MIN;
-}
-impl BitwiseOps for u32 {
-    const ALL_ON: Self = u32::MAX;
-    const ALL_OFF: Self = u32::MIN;
-}
-impl BitwiseOps for u64 {
-    const ALL_ON: Self = u64::MAX;
-    const ALL_OFF: Self = u64::MIN;
-}
-impl BitwiseOps for usize {
-    const ALL_ON: Self = usize::MAX;
-    const ALL_OFF: Self = usize::MIN;
-}
+
+bitwise_ops_impl!(u8 u16 u32 u64 usize);
 
 pub mod register;
 
