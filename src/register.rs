@@ -49,6 +49,13 @@ impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterReader for MaskedRegist
     }
 }
 
+impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterLoader for MaskedRegisterLoader<B, L> {
+    fn load(&mut self, bits: Self::Size) {
+        let res = bits & self.mask | self.loader.read() & !self.mask;
+        self.loader.load(res)
+    }
+}
+
 pub mod typical {
     use super::*;
 
@@ -66,13 +73,6 @@ pub mod typical {
 
         fn read(&self) -> Self::Size {
             self.bits
-        }
-    }
-
-    impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterLoader for MaskedRegisterLoader<B, L> {
-        fn load(&mut self, bits: Self::Size) {
-            let res = bits & self.mask | self.loader.read() & !self.mask;
-            self.loader.load(res)
         }
     }
 
