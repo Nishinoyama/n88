@@ -3,15 +3,16 @@ use crate::BitwiseOps;
 pub trait RegisterCode {}
 
 #[allow(clippy::needless_lifetimes)]
-pub trait RegisterSet<R> {
-    type Loader<'a>: RegisterLoader
+pub trait RegisterSet<C> {
+    type Size;
+    type Loader<'a>: RegisterLoader<Size = Self::Size>
     where
         Self: 'a;
-    type Reader<'a>: RegisterReader
+    type Reader<'a>: RegisterReader<Size = Self::Size>
     where
         Self: 'a;
-    fn loader_of<'a>(&'a mut self, code: R) -> Self::Loader<'a>;
-    fn reader_of<'a>(&'a self, code: R) -> Self::Reader<'a>;
+    fn loader_of<'a>(&'a mut self, code: C) -> Self::Loader<'a>;
+    fn reader_of<'a>(&'a self, code: C) -> Self::Reader<'a>;
 }
 
 pub trait Register {
@@ -206,6 +207,7 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register16Code> for Register16Set {
+        type Size = u16;
         type Loader<'a> = Register16Loader<'a>;
         type Reader<'a> = Register16Reader<'a>;
 
@@ -225,6 +227,7 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register8Code> for Register16Set {
+        type Size = u8;
         type Loader<'a> = Register16In8Loader<'a>;
         type Reader<'a> = Register16In8Reader<'a>;
 

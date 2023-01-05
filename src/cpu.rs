@@ -1,4 +1,4 @@
-use crate::alu::ALU;
+use crate::alu::{FlagSet, ALU};
 use crate::memory::Memory;
 use crate::register::{RegisterLoader, RegisterReader};
 
@@ -30,7 +30,7 @@ pub trait CPUAlu {
         lhs: <Self::ALU as ALU>::Data,
     ) -> (<Self::ALU as ALU>::Data, <Self::ALU as ALU>::FlagSet)
     where
-        Self: 'a + CPUAccumulator<Reader<'a> = R, Loader<'a> = L>,
+        Self: 'a + CPUAccumulator<AccReader<'a> = R, AccLoader<'a> = L>,
         R: RegisterReader<Size = <Self::ALU as ALU>::Data>,
     {
         let rhs = self.acc_reader().read();
@@ -40,36 +40,99 @@ pub trait CPUAlu {
 }
 
 pub trait CPUAccumulator {
-    type Loader<'a>: RegisterLoader
+    type AccSize;
+    type AccLoader<'a>: RegisterLoader<Size = Self::AccSize>
     where
         Self: 'a;
-    type Reader<'a>: RegisterReader
+    type AccReader<'a>: RegisterReader<Size = Self::AccSize>
     where
         Self: 'a;
-    fn acc_loader<'a>(&'a mut self) -> Self::Loader<'a>;
-    fn acc_reader<'a>(&'a self) -> Self::Reader<'a>;
+    fn acc_loader<'a>(&'a mut self) -> Self::AccLoader<'a>;
+    fn acc_reader<'a>(&'a self) -> Self::AccReader<'a>;
 }
 
-pub trait CPUFlagRegister {
-    type Loader<'a>: RegisterLoader
+pub trait CPUFlagRegister: CPUAlu {
+    type FlagRegisterSize: Into<<Self::ALU as ALU>::FlagSet>;
+    type FlagRegisterLoader<'a>: RegisterLoader<Size = Self::FlagRegisterSize>
     where
         Self: 'a;
-    type Reader<'a>: RegisterReader
+    type FlagRegisterReader<'a>: RegisterReader<Size = Self::FlagRegisterSize>
     where
         Self: 'a;
-    fn flag_loader<'a>(
+    fn flag_loader<'a>(&'a mut self) -> Self::FlagRegisterLoader<'a> {
+        self.flag_loader_masked(<Self::ALU as ALU>::FlagSet::all_on())
+    }
+    fn flag_loader_masked<'a>(
         &'a mut self,
-        flag_mask: <Self::Loader<'a> as RegisterReader>::Size,
-    ) -> Self::Loader<'a>;
-    fn flag_reader<'a>(&'a self) -> Self::Reader<'a>;
+        flag_mask: <Self::ALU as ALU>::FlagSet,
+    ) -> Self::FlagRegisterLoader<'a>;
+    fn flag_loader_mask_slice<'a>(
+        &'a mut self,
+        flag_masks: &[<Self::ALU as ALU>::FlagSet],
+    ) -> Self::FlagRegisterLoader<'a> {
+        self.flag_loader_masked(<Self::ALU as ALU>::FlagSet::all_on())
+    }
+    fn flag_reader<'a>(&'a self) -> Self::FlagRegisterReader<'a>;
+    fn flag_on(&mut self, flag: <Self::ALU as ALU>::Flag) -> bool {
+        let flags: <Self::ALU as ALU>::FlagSet = self.flag_reader().read().into();
+        flags.get_flag(flag)
+    }
 }
+
+// pub trait CPUProgramCounter: CPUMemory {
+//     type ProgramCounterLoader<'a>: RegisterLoader<Size = <Self::Memory as Memory>::Address>
+//     where
+//         Self: 'a;
+//     type ProgramCounterReader<'a>: RegisterReader<Size = <Self::Memory as Memory>::Address>
+//     where
+//         Self: 'a;
+//     fn program_counter_loader<'a>(&mut self) -> Self::ProgramCounterLoader<'a>;
+//     fn program_counter_reader<'a>(&self) -> Self::ProgramCounterReader<'a>;
+//     fn program_fetch(&mut self) -> <Self::Memory as Memory>::Data {
+//         let index = self.program_counter_reader().read();
+//         self.memory().read(index)
+//     }
+// }
+//
+// pub trait CPUStackPointer: CPUMemory {
+//     type StackNodeSize;
+//     type StackPointerLoader<'a>: RegisterLoader<Size = <Self::Memory as Memory>::Address>
+//     where
+//         Self: 'a;
+//     type StackPointerReader<'a>: RegisterReader<Size = <Self::Memory as Memory>::Address>
+//     where
+//         Self: 'a;
+//     fn stack_pointer_loader<'a>(&mut self) -> Self::StackPointerLoader<'a>;
+//     fn stack_pointer_reader<'a>(&self) -> Self::StackPointerReader<'a>;
+//     fn push(&mut self, bits: Self::StackNodeSize);
+//     fn pop(&mut self) -> Self::StackNodeSize;
+// }
+//
+// pub trait CPUJump: CPUMemory + CPUProgramCounter {
+//     fn jump(&mut self, index: <Self::Memory as Memory>::Address) {
+//         self.program_counter_loader().load(index);
+//     }
+//     fn jump_on<'a>(
+//         &'a mut self,
+//         index: <Self::Memory as Memory>::Address,
+//         flag: <Self::ALU as ALU>::Flag,
+//     ) where
+//         Self: CPUFlagRegister,
+//         <Self::ALU as ALU>::FlagSet: From<<Self::FlagRegisterReader<'a> as RegisterReader>::Size>,
+//     {
+//         if self.flag_on(flag) {
+//             self.jump(index)
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alu::{FlagSet, FlagSetBits};
+    use crate::alu::typical::FlagSetBits;
+    use crate::alu::FlagSet;
     use crate::instruction::Instruction;
-    use crate::memory::Memory8Bit64KB;
+    use crate::memory::typical::Memory8Bit64KB;
     use crate::register::typical::*;
     use crate::register::*;
 
@@ -78,6 +141,7 @@ mod tests {
         af: Register16,
         bc: Register16,
         hl: Register16,
+        sp: Register16,
         memory: Memory8Bit64KB,
     }
 
@@ -92,27 +156,35 @@ mod tests {
     }
 
     impl CPUAccumulator for CPU8 {
-        type Loader<'a> = Register16In8Loader<'a> where Self: 'a;
-        type Reader<'a> = Register16In8Reader<'a> where Self: 'a;
+        type AccSize = u8;
+        type AccLoader<'a> = Register16In8Loader<'a> where Self: 'a;
+        type AccReader<'a> = Register16In8Reader<'a> where Self: 'a;
 
-        fn acc_loader<'a>(&'a mut self) -> Self::Loader<'a> {
+        fn acc_loader<'a>(&'a mut self) -> Self::AccLoader<'a> {
             Register16In8Loader::new(&mut self.af, false)
         }
 
-        fn acc_reader<'a>(&'a self) -> Self::Reader<'a> {
+        fn acc_reader<'a>(&'a self) -> Self::AccReader<'a> {
             Register16In8Reader::new(&self.af, false)
         }
     }
 
     impl CPUFlagRegister for CPU8 {
-        type Loader<'a> = MaskedRegisterLoader<u8, Register16In8Loader<'a>> where Self: 'a;
-        type Reader<'a> = Register16In8Reader<'a> where Self: 'a;
+        type FlagRegisterSize = u8;
+        type FlagRegisterLoader<'a> = MaskedRegisterLoader<Self::FlagRegisterSize, Register16In8Loader<'a>> where Self: 'a;
+        type FlagRegisterReader<'a> = Register16In8Reader<'a> where Self: 'a;
 
-        fn flag_loader<'a>(&'a mut self, flag_mask: u8) -> Self::Loader<'a> {
-            MaskedRegisterLoader::new(Register16In8Loader::new(&mut self.af, true), flag_mask)
+        fn flag_loader_masked<'a>(
+            &'a mut self,
+            flag_mask: <Self::ALU as ALU>::FlagSet,
+        ) -> Self::FlagRegisterLoader<'a> {
+            MaskedRegisterLoader::new(
+                Register16In8Loader::new(&mut self.af, true),
+                flag_mask.into(),
+            )
         }
 
-        fn flag_reader<'a>(&'a self) -> Self::Reader<'a> {
+        fn flag_reader<'a>(&'a self) -> Self::FlagRegisterReader<'a> {
             Register16In8Reader::new(&self.af, true)
         }
     }
@@ -226,13 +298,13 @@ mod tests {
                 Inst::Add(lhs) => {
                     let lhs = cpu.reader_of(*lhs).read();
                     let (res, flag) = cpu.alu_acc_op(false, lhs);
-                    cpu.flag_loader(!0).load(flag.bits());
+                    cpu.flag_loader().load(flag.bits());
                     cpu.acc_loader().load(res);
                 }
                 Inst::Sub(lhs) => {
                     let lhs = cpu.reader_of(*lhs).read();
                     let (res, flag) = cpu.alu_acc_op(false, lhs);
-                    cpu.flag_loader(!0).load(flag.bits());
+                    cpu.flag_loader().load(flag.bits());
                     cpu.acc_loader().load(res);
                 }
                 Inst::Nop => {}
@@ -242,6 +314,7 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register16Code> for CPU8 {
+        type Size = u16;
         type Loader<'a> = Register16Loader<'a>;
         type Reader<'a> = Register16Reader<'a>;
 
@@ -263,6 +336,7 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register8Code> for CPU8 {
+        type Size = u8;
         type Loader<'a> = Register16In8Loader<'a>;
         type Reader<'a> = Register16In8Reader<'a>;
 
