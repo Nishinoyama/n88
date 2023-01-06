@@ -42,9 +42,7 @@ mod tests {
         let inc = Etc(Box::new(|cpu: &mut CPU8| cpu.a += 1));
         inc.execute(&mut cpu);
         assert_eq!(cpu.a, 54);
-        let left_shift = |i| {
-            Box::new(move |cpu: &mut CPU8| { cpu.a <<= i })
-        };
+        let left_shift = |i| Box::new(move |cpu: &mut CPU8| cpu.a <<= i);
         Etc(left_shift(3)).execute(&mut cpu);
         assert_eq!(cpu.a, 176);
     }

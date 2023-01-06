@@ -34,3 +34,4 @@ pub mod alu;
 pub mod memory;
 
 pub mod cpu;
+mod addressing;
