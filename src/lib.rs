@@ -10,12 +10,20 @@ pub trait BitwiseOps:
     + PartialEq
     + Copy
 {
+    const ALL_ON: Self;
+    const ALL_OFF: Self;
 }
-impl BitwiseOps for u8 {}
-impl BitwiseOps for u16 {}
-impl BitwiseOps for u32 {}
-impl BitwiseOps for u64 {}
-impl BitwiseOps for usize {}
+
+macro_rules! bitwise_ops_impl {
+    ($($t:ty)*) => {$(
+        impl BitwiseOps for $t {
+            const ALL_ON: Self = <$t>::MAX;
+            const ALL_OFF: Self = <$t>::MIN;
+        }
+    )*}
+}
+
+bitwise_ops_impl!(u8 u16 u32 u64 usize);
 
 pub mod register;
 
