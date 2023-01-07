@@ -79,7 +79,7 @@ pub trait CPUFlagRegister: CPUAlu {
     fn flag_reader<'a>(&'a self) -> Self::FlagRegisterReader<'a>;
     fn flag_on(&self, flag: <Self::ALU as ALU>::Flag) -> bool {
         let flags: <Self::ALU as ALU>::FlagSet = self.flag_reader().read().into();
-        flags.get_flag(flag)
+        flags.is_set(flag)
     }
 }
 
@@ -102,33 +102,30 @@ pub trait CPUStackPointer: CPUMemory {
     type StackPointerReader<'a>: RegisterReader<Size = Self::MemoryAddress>
     where
         Self: 'a;
-    fn stack_pointer_loader<'a>(&mut self) -> Self::StackPointerLoader<'a>;
-    fn stack_pointer_reader<'a>(&self) -> Self::StackPointerReader<'a>;
-    fn push<S>(&mut self, bits: S);
-    fn pop<S>(&mut self) -> S;
+    fn stack_pointer_loader<'a>(&'a mut self) -> Self::StackPointerLoader<'a>;
+    fn stack_pointer_reader<'a>(&'a self) -> Self::StackPointerReader<'a>;
+    fn push(&mut self, bits: Self::MemoryData);
+    fn pop(&mut self) -> Self::MemoryData;
 }
 
-// // pub trait CPUJump: CPUMemory + CPUProgramCounter {
-// //     fn jump(&mut self, index: <Self::Memory as Memory>::Address) {
-// //         self.program_counter_loader().load(index);
-// //     }
-// //     fn jump_on<'a>(
-// //         &'a mut self,
-// //         index: <Self::Memory as Memory>::Address,
-// //         flag: <Self::ALU as ALU>::Flag,
-// //     ) where
-// //         Self: CPUFlagRegister,
-// //         <Self::ALU as ALU>::FlagSet: From<<Self::FlagRegisterReader<'a> as RegisterReader>::Size>,
-// //     {
-// //         if self.flag_on(flag) {
-// //             self.jump(index)
-// //         }
-// //     }
-// // }
-//
+pub trait CPUJump: CPUMemory + CPUProgramCounter {
+    fn jump(&mut self, index: Self::MemoryAddress) {
+        self.program_counter_loader().load(index);
+    }
+    fn jump_on<'a>(&'a mut self, index: Self::MemoryAddress, flag: <Self::ALU as ALU>::Flag)
+    where
+        Self: CPUFlagRegister,
+        <Self::ALU as ALU>::FlagSet: From<<Self::FlagRegisterReader<'a> as RegisterReader>::Size>,
+    {
+        if self.flag_on(flag) {
+            self.jump(index)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::cpu::{CPUMemory, CPUProgramCounter};
+    use crate::cpu::{CPUMemory, CPUProgramCounter, CPUStackPointer};
     use crate::memory::typical::Memory8Bit64KB;
     use crate::memory::Memory;
     use crate::register::typical::{Register16, Register16Loader, Register16Reader};
@@ -191,6 +188,31 @@ mod tests {
         }
     }
 
+    impl CPUStackPointer for CPU8 {
+        type StackPointerLoader<'a>  = Register16Loader<'a> where Self: 'a;
+        type StackPointerReader<'a>  = Register16Reader<'a>  where Self: 'a;
+
+        fn stack_pointer_loader<'a>(&'a mut self) -> Self::StackPointerLoader<'a> {
+            Register16Loader::new(&mut self.sp)
+        }
+
+        fn stack_pointer_reader<'a>(&'a self) -> Self::StackPointerReader<'a> {
+            Register16Reader::new(&self.sp)
+        }
+
+        fn push(&mut self, bits: Self::MemoryData) {
+            let sp = self.stack_pointer_reader().read().wrapping_sub(1);
+            self.stack_pointer_loader().load(sp);
+            self.memory_store(sp, bits);
+        }
+
+        fn pop(&mut self) -> Self::MemoryData {
+            let sp = self.stack_pointer_reader().read();
+            self.stack_pointer_loader().load(sp.wrapping_add(1));
+            self.memory_read(sp)
+        }
+    }
+
     #[test]
     fn pc() {
         let mut cpu = CPU8::new();
@@ -198,5 +220,24 @@ mod tests {
         assert_eq!(cpu.program_fetch(), 1);
         assert_eq!(cpu.program_fetch(), 2);
         assert_eq!(cpu.program_fetch(), 3);
+    }
+
+    #[test]
+    fn sp() {
+        let mut cpu = CPU8::new();
+        cpu.push(3);
+        cpu.push(1);
+        cpu.push(4);
+        cpu.push(1);
+        cpu.push(5);
+        assert_eq!(cpu.pop(), 5);
+        assert_eq!(cpu.pop(), 1);
+        cpu.push(5);
+        assert_eq!(cpu.pop(), 5);
+        assert_eq!(cpu.pop(), 4);
+        assert_eq!(cpu.pop(), 1);
+        cpu.push(5);
+        assert_eq!(cpu.pop(), 5);
+        assert_eq!(cpu.pop(), 3);
     }
 }

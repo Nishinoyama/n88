@@ -1,5 +1,5 @@
 pub trait Instruction<CPU> {
-    fn execute(&self, cpu: &mut CPU);
+    fn execute(self, cpu: &mut CPU);
 }
 
 #[cfg(test)]
@@ -20,11 +20,11 @@ mod tests {
     }
 
     impl Instruction<CPU8> for Instructions<CPU8> {
-        fn execute(&self, cpu: &mut CPU8) {
+        fn execute(self, cpu: &mut CPU8) {
             use Instructions::*;
             match self {
-                LoadA(a) => cpu.a = *a,
-                LoadB(b) => cpu.b = *b,
+                LoadA(a) => cpu.a = a,
+                LoadB(b) => cpu.b = b,
                 Add => cpu.a = cpu.a.wrapping_add(cpu.b),
                 Etc(f) => f(cpu),
             }

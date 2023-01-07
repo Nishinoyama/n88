@@ -1,6 +1,6 @@
 pub trait FlagSet<F> {
     fn change(&mut self, flag: F, set: bool);
-    fn get_flag(&self, flag: F) -> bool;
+    fn is_set(&self, flag: F) -> bool;
     fn set(&mut self, flag: F) {
         self.change(flag, true);
     }
@@ -36,7 +36,7 @@ pub mod typical {
                 self.0 &= !flag.into()
             }
         }
-        fn get_flag(&self, flag: F) -> bool {
+        fn is_set(&self, flag: F) -> bool {
             let b = flag.into();
             (self.0 & b) == b
         }
