@@ -2,6 +2,84 @@ pub trait Instruction<CPU> {
     fn execute(self, cpu: &mut CPU);
 }
 
+pub mod typical {
+    use super::*;
+    use crate::cpu::*;
+    use crate::register::*;
+
+    pub struct Jump<A> {
+        address: A,
+    }
+
+    impl<CPU, A> Instruction<CPU> for Jump<A>
+        where
+            CPU: CPUProgramCounter<MemoryAddress = A>,
+            A: Copy,
+    {
+        fn execute(self, cpu: &mut CPU) {
+            cpu.program_counter_loader().load(self.address);
+        }
+    }
+
+    impl<A> Jump<A> {
+        pub fn new(address: A) -> Self {
+            Self { address }
+        }
+    }
+
+    pub struct Push<B> {
+        data: B,
+    }
+
+    impl<CPU, B> Instruction<CPU> for Push<B>
+        where
+            CPU: CPUStackPointer<MemoryData = B>,
+            B: Copy,
+    {
+        fn execute(self, cpu: &mut CPU) {
+            cpu.push(self.data)
+        }
+    }
+
+    impl<B> Push<B> {
+        pub fn new(data: B) -> Self {
+            Self { data }
+        }
+    }
+
+    pub struct Pop<C> {
+        dst: C
+    }
+
+    impl<CPU, C, B> Instruction<CPU> for Pop<C>
+        where
+            CPU: CPUStackPointer<MemoryData = B> + RegisterSet<C, Size = B>,
+    {
+    {
+        fn execute(self, cpu: &mut CPU) {
+            let src = cpu.pop();
+            cpu.loader_of(self.dst).load(src);
+        }
+    }
+
+    pub struct Condition<F, I> {
+        cond: F,
+        then: I,
+    }
+
+    impl<CPU, F, I> Instruction<CPU> for Condition<F, I>
+        where
+            F: Fn(&CPU) -> bool,
+            I: Instruction<CPU>,
+    {
+        fn execute(self, cpu: &mut CPU) {
+            if (self.cond)(cpu) {
+                self.then.execute(cpu);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::instruction::Instruction;

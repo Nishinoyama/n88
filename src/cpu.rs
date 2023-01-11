@@ -1,7 +1,6 @@
 use crate::alu::{FlagSet, ALU};
 use crate::memory::Memory;
 use crate::register::{RegisterLoader, RegisterReader};
-use std::ops::Sub;
 
 pub enum CPURunningState {
     Running,
@@ -130,6 +129,8 @@ mod tests {
     use crate::memory::Memory;
     use crate::register::typical::{Register16, Register16Loader, Register16Reader};
     use crate::register::{Register, RegisterLoader, RegisterReader};
+    use crate::instruction::Instruction;
+    use crate::instruction::typical::*;
 
     #[derive(Debug, Default)]
     struct CPU8 {
@@ -220,6 +221,10 @@ mod tests {
         assert_eq!(cpu.program_fetch(), 1);
         assert_eq!(cpu.program_fetch(), 2);
         assert_eq!(cpu.program_fetch(), 3);
+        Jump::new(31).execute(&mut cpu);
+        assert_eq!(cpu.program_fetch(), 31);
+        assert_eq!(cpu.program_fetch(), 32);
+        assert_eq!(cpu.program_fetch(), 33);
     }
 
     #[test]
@@ -229,7 +234,7 @@ mod tests {
         cpu.push(1);
         cpu.push(4);
         cpu.push(1);
-        cpu.push(5);
+        Push::new(5).execute(&mut cpu);
         assert_eq!(cpu.pop(), 5);
         assert_eq!(cpu.pop(), 1);
         cpu.push(5);
