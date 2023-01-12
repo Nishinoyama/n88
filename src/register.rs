@@ -24,35 +24,35 @@ pub(crate) trait RegisterReader {
     fn read(&self) -> Self::Size;
 }
 
-#[derive(Debug)]
-pub(crate) struct MaskedRegisterLoader<B, L> {
-    loader: L,
-    mask: B,
-}
-
-impl<B: BitwiseOps, L: RegisterLoader<Size = B>> MaskedRegisterLoader<B, L> {
-    pub fn new(loader: L, mask: B) -> Self {
-        Self { loader, mask }
-    }
-}
-
-impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterReader for MaskedRegisterLoader<B, L> {
-    type Size = B;
-
-    fn read(&self) -> Self::Size {
-        self.loader.read() & self.mask
-    }
-}
-
-impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterLoader for MaskedRegisterLoader<B, L> {
-    fn load(&mut self, bits: Self::Size) {
-        let res = bits & self.mask | self.loader.read() & !self.mask;
-        self.loader.load(res)
-    }
-}
-
 pub mod typical {
     use super::*;
+
+    #[derive(Debug)]
+    pub(crate) struct MaskedRegisterLoader<B, L> {
+        loader: L,
+        mask: B,
+    }
+
+    impl<B: BitwiseOps, L: RegisterLoader<Size = B>> MaskedRegisterLoader<B, L> {
+        pub fn new(loader: L, mask: B) -> Self {
+            Self { loader, mask }
+        }
+    }
+
+    impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterReader for MaskedRegisterLoader<B, L> {
+        type Size = B;
+
+        fn read(&self) -> Self::Size {
+            self.loader.read() & self.mask
+        }
+    }
+
+    impl<B: BitwiseOps, L: RegisterLoader<Size = B>> RegisterLoader for MaskedRegisterLoader<B, L> {
+        fn load(&mut self, bits: Self::Size) {
+            let res = bits & self.mask | self.loader.read() & !self.mask;
+            self.loader.load(res)
+        }
+    }
 
     #[derive(Debug, Default, Clone)]
     pub struct Register16 {
@@ -71,7 +71,7 @@ pub mod typical {
         }
     }
 
-    pub struct Register16In8Loader<'a> {
+    pub(crate) struct Register16In8Loader<'a> {
         register: &'a mut Register16,
         low: bool,
     }
@@ -102,7 +102,7 @@ pub mod typical {
     }
 
     #[derive(Debug)]
-    pub struct Register16Loader<'a> {
+    pub(crate) struct Register16Loader<'a> {
         pub register: &'a mut Register16,
     }
 
@@ -126,7 +126,7 @@ pub mod typical {
         }
     }
 
-    pub struct Register16In8Reader<'a> {
+    pub(crate) struct Register16In8Reader<'a> {
         register: &'a Register16,
         low: bool,
     }
@@ -150,7 +150,7 @@ pub mod typical {
     }
 
     #[derive(Debug)]
-    pub struct Register16Reader<'a> {
+    pub(crate) struct Register16Reader<'a> {
         register: &'a Register16,
     }
 
