@@ -42,18 +42,18 @@ pub mod typical {
         }
 
         fn all_on() -> Self {
-            Self(B::ALL_ON)
+            Self(B::ALL_ONE)
         }
 
         fn all_off() -> Self {
-            Self(B::ALL_OFF)
+            Self(B::ALL_ZERO)
         }
 
         fn from_slice(flags: &[F]) -> Self
         where
             F: Copy,
         {
-            Self(flags.iter().fold(B::ALL_OFF, |b, &f| b | f.into()))
+            Self(flags.iter().fold(B::ALL_ONE, |b, &f| b | f.into()))
         }
     }
 

@@ -32,8 +32,7 @@ pub trait CPUAlu {
         Self: 'a + CPUAccumulator<AccSize = <Self::ALU as ALU>::Data>,
     {
         let lhs = self.acc_read();
-        let res = self.alu().op(control, lhs, rhs);
-        res
+        self.alu().op(control, lhs, rhs)
     }
 }
 

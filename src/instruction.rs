@@ -1,5 +1,12 @@
+use crate::cpu::CPUMemory;
+
 pub trait Instruction<CPU> {
-    fn execute(self, cpu: &mut CPU);
+    fn execute(&self, cpu: &mut CPU);
+}
+
+pub trait InstructionDecoder<CPU> {
+    type InstructionSize;
+    fn decode(&mut self, data: Self::InstructionSize) -> Option<Box<dyn Instruction<CPU>>>;
 }
 
 pub mod typical {
@@ -18,7 +25,7 @@ pub mod typical {
         CPU: CPUProgramCounter<MemoryAddress = A>,
         A: Copy,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             cpu.program_counter_load(self.address);
         }
     }
@@ -38,7 +45,7 @@ pub mod typical {
         CPU: CPUStackPointer<MemoryData = B>,
         B: Copy,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             cpu.push(self.data)
         }
     }
@@ -56,8 +63,9 @@ pub mod typical {
     impl<CPU, C, B> Instruction<CPU> for Pop<C>
     where
         CPU: CPUStackPointer<MemoryData = B> + RegisterSet<C, Size = B>,
+        C: Copy,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             let src = cpu.pop();
             cpu.load_of(self.dst, src)
         }
@@ -70,10 +78,10 @@ pub mod typical {
 
     impl<CPU, F, I> Instruction<CPU> for Condition<F, I>
     where
-        F: FnOnce(&CPU) -> bool,
+        F: Fn(&CPU) -> bool,
         I: Instruction<CPU>,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             if (self.cond)(cpu) {
                 self.then.execute(cpu);
             }
@@ -97,7 +105,7 @@ pub mod typical {
         C: Copy,
         A: Addressing<CPU, Size = B> + Copy,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             let bits = self.src.value(cpu);
             cpu.load_of(self.dst, bits);
         }
@@ -120,7 +128,7 @@ pub mod typical {
         D: Addressing<CPU, Size = A> + Copy,
         S: Addressing<CPU, Size = B> + Copy,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             let dst = self.dst.value(cpu);
             let src = self.src.value(cpu);
             cpu.memory_store(dst, src);
@@ -153,13 +161,14 @@ pub mod typical {
         A: ALU<Data = B, Control = C, Flag = F>,
         C: Copy,
         F: Copy,
+        D: Copy,
         L: Addressing<CPU, Size = B>,
         G: From<A::FlagSet>,
     {
-        fn execute(self, cpu: &mut CPU) {
+        fn execute(&self, cpu: &mut CPU) {
             let rhs = self.rhs.value(cpu);
-            let (res, flag) = cpu.alu_acc_op(self.control, rhs);
-            cpu.flag_load_mask_slice(&self.flags, flag.into());
+            let (res, flags) = cpu.alu_acc_op(self.control, rhs);
+            cpu.flag_load_mask_slice(&self.flags, flags.into());
             cpu.load_of(self.dst, res);
         }
     }
@@ -167,7 +176,8 @@ pub mod typical {
 
 #[cfg(test)]
 mod tests {
-    use crate::instruction::Instruction;
+    use crate::instruction::tests::Instructions::{Add, LoadA, LoadB};
+    use crate::instruction::{Instruction, InstructionDecoder};
 
     #[derive(Debug, Default)]
     struct CPU8 {
@@ -179,17 +189,44 @@ mod tests {
         LoadA(u8),
         LoadB(u8),
         Add,
-        Etc(Box<dyn FnOnce(&mut CPU)>),
+        Etc(Box<dyn Fn(&mut CPU)>),
     }
 
     impl Instruction<CPU8> for Instructions<CPU8> {
-        fn execute(self, cpu: &mut CPU8) {
+        fn execute(&self, cpu: &mut CPU8) {
             use Instructions::*;
             match self {
-                LoadA(a) => cpu.a = a,
-                LoadB(b) => cpu.b = b,
+                LoadA(a) => cpu.a = *a,
+                LoadB(b) => cpu.b = *b,
                 Add => cpu.a = cpu.a.wrapping_add(cpu.b),
                 Etc(f) => f(cpu),
+            }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CPU8Decoder {
+        len: usize,
+        buf: [u8; 2],
+    }
+
+    impl InstructionDecoder<CPU8> for CPU8Decoder {
+        type InstructionSize = u8;
+
+        fn decode(&mut self, data: Self::InstructionSize) -> Option<Box<dyn Instruction<CPU8>>> {
+            self.buf[self.len] = data;
+            self.len += 1;
+            if self.len == 1 && self.buf[0] == 2 {
+                self.len = 0;
+                Some(Box::new(Add))
+            } else if self.len == 2 {
+                self.len = 0;
+                match self.buf[0] {
+                    0 => Some(Box::new(LoadA(self.buf[1]))),
+                    _ => Some(Box::new(LoadB(self.buf[1]))),
+                }
+            } else {
+                None
             }
         }
     }
@@ -208,5 +245,21 @@ mod tests {
         let left_shift = |i| Box::new(move |cpu: &mut CPU8| cpu.a <<= i);
         Etc(left_shift(3)).execute(&mut cpu);
         assert_eq!(cpu.a, 176);
+    }
+
+    #[test]
+    fn decode() {
+        use Instructions::*;
+        let mut cpu = CPU8::default();
+        let mut decoder = CPU8Decoder::default();
+        decoder.decode(0);
+        decoder.decode(31).unwrap().execute(&mut cpu);
+        Add.execute(&mut cpu);
+        assert_eq!(cpu.a, 31);
+        decoder.decode(1);
+        decoder.decode(41).unwrap().execute(&mut cpu);
+        assert_eq!(cpu.b, 41);
+        decoder.decode(2).unwrap().execute(&mut cpu);
+        assert_eq!(cpu.a, 72);
     }
 }

@@ -10,15 +10,15 @@ pub trait BitwiseOps:
     + PartialEq
     + Copy
 {
-    const ALL_ON: Self;
-    const ALL_OFF: Self;
+    const ALL_ONE: Self;
+    const ALL_ZERO: Self;
 }
 
 macro_rules! bitwise_ops_impl {
     ($($t:ty)*) => {$(
         impl BitwiseOps for $t {
-            const ALL_ON: Self = <$t>::MAX;
-            const ALL_OFF: Self = <$t>::MIN;
+            const ALL_ONE: Self = <$t>::MAX;
+            const ALL_ZERO: Self = <$t>::MIN;
         }
     )*}
 }
