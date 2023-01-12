@@ -6,7 +6,7 @@ pub mod i8080 {
     use crate::memory::typical::*;
     use crate::memory::Memory;
     use crate::register::typical::*;
-    use crate::register::{RegisterReader, RegisterSet};
+    use crate::register::{RegisterLoader, RegisterReader, RegisterSet};
 
     #[derive(Debug, Default)]
     pub struct I8080 {
@@ -34,10 +34,7 @@ pub mod i8080 {
 
     impl RegisterSet<I8080RegisterCode8Bit> for I8080 {
         type Size = u8;
-        type Loader<'a> = Register16In8Loader<'a> where Self: 'a;
-        type Reader<'a> = Register16In8Reader<'a> where Self: 'a;
-
-        fn loader_of<'a>(&'a mut self, code: I8080RegisterCode8Bit) -> Self::Loader<'a> {
+        fn load_of(&mut self, code: I8080RegisterCode8Bit, bits: Self::Size) {
             let low = code.is_low();
             let register = match code {
                 I8080RegisterCode8Bit::A => &mut self.psw,
@@ -48,10 +45,10 @@ pub mod i8080 {
                 I8080RegisterCode8Bit::H => &mut self.h,
                 I8080RegisterCode8Bit::L => &mut self.h,
             };
-            Register16In8Loader::new(register, low)
+            Register16In8Loader::new(register, low).load(bits)
         }
 
-        fn reader_of<'a>(&'a self, code: I8080RegisterCode8Bit) -> Self::Reader<'a> {
+        fn read_of(&self, code: I8080RegisterCode8Bit) -> Self::Size {
             let low = code.is_low();
             let register = match code {
                 I8080RegisterCode8Bit::A => &self.psw,
@@ -62,31 +59,31 @@ pub mod i8080 {
                 I8080RegisterCode8Bit::H => &self.h,
                 I8080RegisterCode8Bit::L => &self.h,
             };
-            Register16In8Reader::new(register, low)
+            Register16In8Reader::new(register, low).read()
         }
     }
 
     impl RegisterSet<I8080RegisterCode16Bit> for I8080 {
         type Size = u16;
-        type Loader<'a> = Register16Loader<'a> where Self: 'a;
-        type Reader<'a> = Register16Reader<'a> where Self: 'a;
 
-        fn loader_of<'a>(&'a mut self, code: I8080RegisterCode16Bit) -> Self::Loader<'a> {
+        fn load_of(&mut self, code: I8080RegisterCode16Bit, bits: Self::Size) {
             Register16Loader::new(match code {
                 I8080RegisterCode16Bit::PSW => &mut self.psw,
                 I8080RegisterCode16Bit::BC => &mut self.b,
                 I8080RegisterCode16Bit::DE => &mut self.d,
                 I8080RegisterCode16Bit::HL => &mut self.h,
             })
+            .load(bits)
         }
 
-        fn reader_of<'a>(&'a self, code: I8080RegisterCode16Bit) -> Self::Reader<'a> {
+        fn read_of(&self, code: I8080RegisterCode16Bit) -> Self::Size {
             Register16Reader::new(match code {
                 I8080RegisterCode16Bit::PSW => &self.psw,
                 I8080RegisterCode16Bit::BC => &self.b,
                 I8080RegisterCode16Bit::DE => &self.d,
                 I8080RegisterCode16Bit::HL => &self.h,
             })
+            .read()
         }
     }
 
@@ -104,10 +101,10 @@ pub mod i8080 {
         fn value(self, cpu: &I8080) -> Self::Size {
             match self {
                 I8080Addressing8Bit::ImmediateValue(v) => v,
-                I8080Addressing8Bit::ImmediateRegister(reg) => cpu.reader_of(reg).read(),
+                I8080Addressing8Bit::ImmediateRegister(reg) => cpu.read_of(reg),
                 I8080Addressing8Bit::DirectValue(addr) => cpu.memory_read(addr),
                 I8080Addressing8Bit::DirectRegister(reg) => {
-                    I8080Addressing8Bit::DirectValue(cpu.reader_of(reg).read()).value(cpu)
+                    I8080Addressing8Bit::DirectValue(cpu.read_of(reg)).value(cpu)
                 }
             }
         }
@@ -125,7 +122,7 @@ pub mod i8080 {
         fn value(self, cpu: &I8080) -> Self::Size {
             match self {
                 I8080Addressing16Bit::ImmediateValue(v) => v,
-                I8080Addressing16Bit::ImmediateRegister(reg) => cpu.reader_of(reg).read(),
+                I8080Addressing16Bit::ImmediateRegister(reg) => cpu.read_of(reg),
             }
         }
     }
@@ -239,15 +236,15 @@ pub mod i8080 {
                 ImmediateRegister(A),
             )
             .execute(&mut cpu);
-            assert_eq!(cpu.reader_of(A).read(), 36);
+            assert_eq!(cpu.read_of(A), 36);
             assert_eq!(cpu.memory_read(0x1234), 36);
             Load::new(B, ImmediateRegister(A)).execute(&mut cpu);
             Load::new(C, ImmediateRegister(A)).execute(&mut cpu);
-            assert_eq!(cpu.reader_of(B).read(), 36);
-            assert_eq!(cpu.reader_of(C).read(), 36);
-            assert_eq!(cpu.reader_of(BC).read(), 36 * 256 + 36);
+            assert_eq!(cpu.read_of(B), 36);
+            assert_eq!(cpu.read_of(C), 36);
+            assert_eq!(cpu.read_of(BC), 36 * 256 + 36);
             Load::new(HL, I8080Addressing16Bit::ImmediateRegister(BC)).execute(&mut cpu);
-            assert_eq!(cpu.reader_of(HL).read(), 36 * 256 + 36);
+            assert_eq!(cpu.read_of(HL), 36 * 256 + 36);
             println!("{:?}", cpu);
         }
     }

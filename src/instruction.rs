@@ -19,7 +19,7 @@ pub mod typical {
         A: Copy,
     {
         fn execute(self, cpu: &mut CPU) {
-            cpu.program_counter_loader().load(self.address);
+            cpu.program_counter_load(self.address);
         }
     }
 
@@ -59,7 +59,7 @@ pub mod typical {
     {
         fn execute(self, cpu: &mut CPU) {
             let src = cpu.pop();
-            cpu.loader_of(self.dst).load(src);
+            cpu.load_of(self.dst, src)
         }
     }
 
@@ -99,7 +99,7 @@ pub mod typical {
     {
         fn execute(self, cpu: &mut CPU) {
             let bits = self.src.value(cpu);
-            cpu.loader_of(self.dst).load(bits);
+            cpu.load_of(self.dst, bits);
         }
     }
 
@@ -159,8 +159,8 @@ pub mod typical {
         fn execute(self, cpu: &mut CPU) {
             let rhs = self.rhs.value(cpu);
             let (res, flag) = cpu.alu_acc_op(self.control, rhs);
-            cpu.flag_loader_mask_slice(&self.flags).load(flag.into());
-            cpu.loader_of(self.dst).load(res);
+            cpu.flag_load_mask_slice(&self.flags, flag.into());
+            cpu.load_of(self.dst, res);
         }
     }
 }

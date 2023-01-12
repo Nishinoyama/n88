@@ -5,14 +5,8 @@ pub trait RegisterCode {}
 #[allow(clippy::needless_lifetimes)]
 pub trait RegisterSet<C> {
     type Size;
-    type Loader<'a>: RegisterLoader<Size = Self::Size>
-    where
-        Self: 'a;
-    type Reader<'a>: RegisterReader<Size = Self::Size>
-    where
-        Self: 'a;
-    fn loader_of<'a>(&'a mut self, code: C) -> Self::Loader<'a>;
-    fn reader_of<'a>(&'a self, code: C) -> Self::Reader<'a>;
+    fn load_of(&mut self, code: C, bits: Self::Size);
+    fn read_of(&self, code: C) -> Self::Size;
 }
 
 pub trait Register {
@@ -21,17 +15,17 @@ pub trait Register {
     fn read(&self) -> Self::Size;
 }
 
-pub trait RegisterLoader: RegisterReader {
+pub(crate) trait RegisterLoader: RegisterReader {
     fn load(&mut self, bits: Self::Size);
 }
 
-pub trait RegisterReader {
+pub(crate) trait RegisterReader {
     type Size;
     fn read(&self) -> Self::Size;
 }
 
 #[derive(Debug)]
-pub struct MaskedRegisterLoader<B, L> {
+pub(crate) struct MaskedRegisterLoader<B, L> {
     loader: L,
     mask: B,
 }
@@ -208,49 +202,43 @@ mod tests {
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register16Code> for Register16Set {
         type Size = u16;
-        type Loader<'a> = Register16Loader<'a>;
-        type Reader<'a> = Register16Reader<'a>;
 
-        fn loader_of<'a>(&'a mut self, code: Register16Code) -> Self::Loader<'a> {
+        fn load_of(&mut self, code: Register16Code, bits: Self::Size) {
             Register16Loader::new(match code {
                 Register16Code::AF => &mut self.af,
                 Register16Code::HL => &mut self.hl,
             })
+            .load(bits)
         }
-        fn reader_of<'a>(&'a self, code: Register16Code) -> Self::Reader<'a> {
+
+        fn read_of(&self, code: Register16Code) -> Self::Size {
             Register16Reader::new(match code {
                 Register16Code::AF => &self.af,
                 Register16Code::HL => &self.hl,
             })
+            .read()
         }
     }
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register8Code> for Register16Set {
         type Size = u8;
-        type Loader<'a> = Register16In8Loader<'a>;
-        type Reader<'a> = Register16In8Reader<'a>;
 
-        fn loader_of<'a>(&'a mut self, code: Register8Code) -> Self::Loader<'a> {
+        fn load_of(&mut self, code: Register8Code, bits: Self::Size) {
             let register = match code {
                 Register8Code::A => &mut self.af,
                 Register8Code::H | Register8Code::L => &mut self.hl,
             };
-            Register16In8Loader::new(register, code.is_low())
+            Register16In8Loader::new(register, code.is_low()).load(bits);
         }
 
-        fn reader_of<'a>(&'a self, code: Register8Code) -> Self::Reader<'a> {
+        fn read_of(&self, code: Register8Code) -> Self::Size {
             let register = match code {
                 Register8Code::A => &self.af,
                 Register8Code::H | Register8Code::L => &self.hl,
             };
-            Register16In8Reader::new(register, code.is_low())
+            Register16In8Reader::new(register, code.is_low()).read()
         }
-    }
-
-    enum Flag {
-        Overflow = 1,
-        Neg = 2,
     }
 
     #[test]
@@ -271,13 +259,13 @@ mod tests {
         use self::Register16Code::*;
         use self::Register8Code::*;
         let mut regs = Register16Set::default();
-        regs.loader_of(AF).load(0x1234);
-        assert_eq!(regs.reader_of(AF).read(), 0x1234);
-        regs.loader_of(A).load(0x56);
-        assert_eq!(regs.reader_of(AF).read(), 0x5634);
-        regs.loader_of(HL).load(0x9abc);
-        assert_eq!(regs.reader_of(H).read(), 0x9a);
-        assert_eq!(regs.reader_of(L).read(), 0xbc);
+        regs.load_of(AF, 0x1234);
+        assert_eq!(regs.read_of(AF), 0x1234);
+        regs.load_of(A, 0x56);
+        assert_eq!(regs.read_of(AF), 0x5634);
+        regs.load_of(HL, 0x9abc);
+        assert_eq!(regs.read_of(H), 0x9a);
+        assert_eq!(regs.read_of(L), 0xbc);
     }
 
     #[test]
