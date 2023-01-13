@@ -6,11 +6,11 @@ pub enum CPURunningState {
     Error,
 }
 
-pub trait CPU {
-    fn cycle(&mut self) -> CPURunningState;
-    fn run(&mut self) {
-        while let CPURunningState::Running = self.cycle() {}
-    }
+pub trait CPU<D, A>: Copy {
+    fn data_in(self, data: D) -> Self;
+    fn address_out(&self) -> A;
+    fn cycle(self) -> Self;
+    fn run(self) -> Option<Self>;
 }
 
 pub trait CPUMemory {
@@ -103,21 +103,20 @@ mod tests {
     use crate::instruction::Instruction;
     use crate::memory::typical::Memory8Bit64KB;
     use crate::memory::Memory;
-    use crate::register::typical::{Register16, Register16Loader, Register16Reader};
-    use crate::register::{Register, RegisterLoader, RegisterReader};
+    use crate::register::typical::{Register16Loader, Register16Reader};
+    use crate::register::{RegisterLoader, RegisterReader};
 
     #[derive(Debug, Default)]
-    struct CPU8 {
-        af: Register16,
-        sp: Register16,
-        pc: Register16,
+    struct CPU8WithMemory {
+        af: u16,
+        sp: u16,
+        pc: u16,
         memory: Memory8Bit64KB,
     }
 
-    impl CPU8 {
+    impl CPU8WithMemory {
         fn new() -> Self {
-            let mut sp = Register16::default();
-            sp.load(0xfffe);
+            let mut sp = 0xfffe;
             let mut memory = Memory8Bit64KB::default();
             for i in 0..256 {
                 memory.store(i, i as u8);
@@ -130,7 +129,7 @@ mod tests {
         }
     }
 
-    impl CPUMemory for CPU8 {
+    impl CPUMemory for CPU8WithMemory {
         type MemoryAddress = <Memory8Bit64KB as Memory>::Address;
         type MemoryData = <Memory8Bit64KB as Memory>::Data;
 
@@ -143,7 +142,7 @@ mod tests {
         }
     }
 
-    impl CPUProgramCounter for CPU8 {
+    impl CPUProgramCounter for CPU8WithMemory {
         fn program_counter_load(&mut self, bits: Self::MemoryAddress) {
             Register16Loader::new(&mut self.pc).load(bits)
         }
@@ -160,7 +159,7 @@ mod tests {
         }
     }
 
-    impl CPUStackPointer for CPU8 {
+    impl CPUStackPointer for CPU8WithMemory {
         fn stack_pointer_load(&mut self, bits: Self::MemoryAddress) {
             Register16Loader::new(&mut self.sp).load(bits)
         }
@@ -184,7 +183,7 @@ mod tests {
 
     #[test]
     fn pc() {
-        let mut cpu = CPU8::new();
+        let mut cpu = CPU8WithMemory::new();
         assert_eq!(cpu.program_fetch(), 0);
         assert_eq!(cpu.program_fetch(), 1);
         assert_eq!(cpu.program_fetch(), 2);
@@ -197,7 +196,7 @@ mod tests {
 
     #[test]
     fn sp() {
-        let mut cpu = CPU8::new();
+        let mut cpu = CPU8WithMemory::new();
         cpu.push(3);
         cpu.push(1);
         cpu.push(4);

@@ -1,6 +1,5 @@
 use crate::addressing::Addressing;
 use crate::alu::typical::*;
-use crate::alu::*;
 use crate::cpu::*;
 use crate::memory::typical::*;
 use crate::memory::Memory;
@@ -9,12 +8,13 @@ use crate::register::{RegisterLoader, RegisterReader, RegisterSet};
 
 #[derive(Debug, Default)]
 pub struct I8080 {
-    psw: Register16,
-    b: Register16,
-    d: Register16,
-    h: Register16,
-    sp: Register16,
-    pc: Register16,
+    data_bus: u8,
+    psw: u16,
+    b: u16,
+    d: u16,
+    h: u16,
+    sp: u16,
+    pc: u16,
     memory: Memory8Bit64KB,
 }
 

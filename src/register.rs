@@ -10,10 +10,24 @@ pub trait RegisterSet<C> {
 }
 
 pub trait Register {
-    type Size;
-    fn load(&mut self, bits: Self::Size);
-    fn read(&self) -> Self::Size;
+    fn load(&mut self, bits: Self);
+    fn read(&self) -> Self;
 }
+
+macro_rules! register_impl {
+    ($($t:ty)*) => {$(
+        impl Register for $t {
+            fn load(&mut self, bits: Self) {
+                *self = bits;
+            }
+            fn read(&self) -> Self {
+                *self
+            }
+        }
+    )*}
+}
+
+register_impl!(u8 u16 u32 u64 usize);
 
 pub(crate) trait RegisterLoader: RegisterReader {
     fn load(&mut self, bits: Self::Size);
@@ -54,30 +68,13 @@ pub mod typical {
         }
     }
 
-    #[derive(Debug, Default, Clone)]
-    pub struct Register16 {
-        bits: u16,
-    }
-
-    impl Register for Register16 {
-        type Size = u16;
-
-        fn load(&mut self, bits: Self::Size) {
-            self.bits = bits;
-        }
-
-        fn read(&self) -> Self::Size {
-            self.bits
-        }
-    }
-
     pub(crate) struct Register16In8Loader<'a> {
-        register: &'a mut Register16,
+        register: &'a mut u16,
         low: bool,
     }
 
     impl<'a> Register16In8Loader<'a> {
-        pub fn new(register: &'a mut Register16, low: bool) -> Self {
+        pub fn new(register: &'a mut u16, low: bool) -> Self {
             Self { register, low }
         }
     }
@@ -97,17 +94,17 @@ pub mod typical {
             } else {
                 self.register.read() & (!0xff00) | ((bits as u16) << 8)
             };
-            self.register.load(t)
+            *self.register = t;
         }
     }
 
     #[derive(Debug)]
     pub(crate) struct Register16Loader<'a> {
-        pub register: &'a mut Register16,
+        pub register: &'a mut u16,
     }
 
     impl<'a> Register16Loader<'a> {
-        pub fn new(register: &'a mut Register16) -> Self {
+        pub fn new(register: &'a mut u16) -> Self {
             Self { register }
         }
     }
@@ -116,25 +113,25 @@ pub mod typical {
         type Size = u16;
 
         fn read(&self) -> Self::Size {
-            self.register.read()
+            *self.register
         }
     }
 
     impl<'a> RegisterLoader for Register16Loader<'a> {
         fn load(&mut self, bits: u16) {
-            self.register.load(bits)
+            *self.register = bits
         }
     }
 
     pub(crate) struct Register16In8Reader<'a> {
-        register: &'a Register16,
+        register: &'a u16,
         low: bool,
     }
 
     impl<'a> RegisterReader for Register16In8Reader<'a> {
         type Size = u8;
         fn read(&self) -> Self::Size {
-            let t = self.register.read();
+            let t = self.register;
             if self.low {
                 (t & 0x00ff) as u8
             } else {
@@ -144,25 +141,25 @@ pub mod typical {
     }
 
     impl<'a> Register16In8Reader<'a> {
-        pub fn new(register: &'a Register16, low: bool) -> Self {
+        pub fn new(register: &'a u16, low: bool) -> Self {
             Self { register, low }
         }
     }
 
     #[derive(Debug)]
     pub(crate) struct Register16Reader<'a> {
-        register: &'a Register16,
+        register: &'a u16,
     }
 
     impl<'a> RegisterReader for Register16Reader<'a> {
         type Size = u16;
         fn read(&self) -> Self::Size {
-            self.register.read()
+            *self.register
         }
     }
 
     impl<'a> Register16Reader<'a> {
-        pub fn new(register: &'a Register16) -> Self {
+        pub fn new(register: &'a u16) -> Self {
             Self { register }
         }
     }
@@ -175,8 +172,8 @@ mod tests {
 
     #[derive(Default, Debug)]
     struct Register16Set {
-        af: Register16,
-        hl: Register16,
+        af: u16,
+        hl: u16,
     }
 
     enum Register16Code {
@@ -243,8 +240,7 @@ mod tests {
 
     #[test]
     fn register_modifier() {
-        let mut reg = Register16::default();
-        reg.load(0x1234);
+        let mut reg = 0x1234;
         assert_eq!(reg.read(), 0x1234);
         let mut reg_mod = Register16In8Loader::new(&mut reg, true);
         reg_mod.load(0x56);
@@ -270,7 +266,7 @@ mod tests {
 
     #[test]
     fn bitwise_loader() {
-        let mut reg = Register16::default();
+        let mut reg = 0;
         let mut loader = MaskedRegisterLoader::new(Register16Loader::new(&mut reg), 0xf0f0);
         loader.load(0x1234);
         assert_eq!(loader.read(), 0x1030);
