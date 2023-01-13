@@ -1,4 +1,10 @@
 use crate::alu::{FlagSet, ALU};
+use crate::memory::Memory;
+use crate::register::typical::Register16In8Loader;
+use crate::register::{
+    Register, RegisterCode, RegisterDecrementable, RegisterIncrementable, RegisterLoader,
+    RegisterReader,
+};
 
 pub enum CPURunningState {
     Running,
@@ -6,42 +12,63 @@ pub enum CPURunningState {
     Error,
 }
 
-pub trait CPU<D, A>: Copy {
-    fn data_in(self, data: D) -> Self;
-    fn address_out(&self) -> A;
+pub trait CPU: Sized {
+    type Data: Copy + Register;
+    type Address: Copy + Register;
+    fn data(&self) -> Self::Data;
+    fn address(&self) -> Self::Address;
+    fn load_data(self, data: Self::Data) -> Self;
+    fn load_address(self, address: Self::Address) -> Self;
     fn cycle(self) -> Self;
     fn run(self) -> Option<Self>;
 }
 
-pub trait CPUMemory {
-    type MemoryAddress;
-    type MemoryData;
-    fn memory_store(&mut self, index: Self::MemoryAddress, data: Self::MemoryData);
-    fn memory_read(&self, index: Self::MemoryAddress) -> Self::MemoryData;
-}
-
-pub trait CPUAlu {
-    type ALU: ALU;
-    fn alu(&self) -> Self::ALU;
-    fn alu_acc_op<'a>(
-        &'a mut self,
-        control: <Self::ALU as ALU>::Control,
-        rhs: <Self::ALU as ALU>::Data,
-    ) -> (<Self::ALU as ALU>::Data, <Self::ALU as ALU>::FlagSet)
-    where
-        Self: 'a + CPUAccumulator<AccSize = <Self::ALU as ALU>::Data>,
-    {
-        let lhs = self.acc_read();
-        self.alu().op(control, lhs, rhs)
+pub trait CPUMemory<M>: CPU
+where
+    M: Memory<Data = Self::Data, Address = Self::Address>,
+{
+    fn store_memory(self, memory: &mut M) -> Self {
+        memory.store(self.address(), self.data());
+        self
+    }
+    fn fetch_memory(self, memory: &M) -> Self {
+        let address = self.address();
+        self.load_data(memory.read(address))
     }
 }
 
-pub trait CPUAccumulator {
-    type AccSize;
-    fn acc_load(&mut self, bits: Self::AccSize);
-    fn acc_read(&self) -> Self::AccSize;
+/// todo: ALUの素晴らしい設計を後で考える
+pub trait CPUAlu: CPU {
+    type ALU: ALU;
 }
 
+pub trait CPURegisters<C: RegisterCode<Register = Self::Register>>: CPU {
+    type Register;
+    fn read_of(&self, code: C) -> Self::Register;
+    fn load_of(self, code: C, bits: Self::Register) -> Self;
+    fn read_of_as_data(self, code: C) -> Self
+    where
+        Self: CPU<Data = Self::Register>,
+    {
+        let data = self.read_of(code);
+        self.load_data(data)
+    }
+    fn read_of_as_address(self, code: C) -> Self
+    where
+        Self: CPU<Address = Self::Register>,
+    {
+        let address = self.read_of(code);
+        self.load_address(address)
+    }
+}
+
+pub trait CPUAccumulator: CPU {
+    fn acc(&mut self) -> &mut Self::Data;
+    fn acc_load(self) -> Self;
+    fn acc_read(self) -> Self;
+}
+
+/// todo: ALUができたらやる
 pub trait CPUFlagRegister: CPUAlu {
     type FlagRegisterSize: Into<<Self::ALU as ALU>::FlagSet>;
     fn flag_load(&mut self, bits: Self::FlagRegisterSize) {
@@ -68,148 +95,215 @@ pub trait CPUFlagRegister: CPUAlu {
     }
 }
 
-pub trait CPUProgramCounter: CPUMemory {
-    fn program_counter_load(&mut self, bits: Self::MemoryAddress);
-    fn program_counter_read(&self) -> Self::MemoryAddress;
-    fn program_fetch(&mut self) -> Self::MemoryData;
-}
-
-pub trait CPUStackPointer: CPUMemory {
-    fn stack_pointer_load(&mut self, bits: Self::MemoryAddress);
-    fn stack_pointer_read(&self) -> Self::MemoryAddress;
-    fn push(&mut self, bits: Self::MemoryData);
-    fn pop(&mut self) -> Self::MemoryData;
-}
-
-pub trait CPUJump: CPUMemory + CPUProgramCounter {
-    fn jump(&mut self, index: Self::MemoryAddress) {
-        self.program_counter_load(index);
+pub trait CPUProgramCounter: CPU {
+    fn program_counter(&mut self) -> &mut Self::Address;
+    fn program_counter_read(mut self) -> Self {
+        let address = *self.program_counter();
+        self.load_address(address)
     }
-    fn jump_on(&mut self, index: Self::MemoryAddress, flag: <Self::ALU as ALU>::Flag)
+    /// fixme: u16 and u8 hardcode.
+    fn program_counter_load_high(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.program_counter(), true).load(data);
+        self
+    }
+    /// fixme: u16 and u8 hardcode.
+    fn program_counter_load_low(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.program_counter(), false).load(data);
+        self
+    }
+    fn program_fetch<M>(self, memory: &M) -> Self
+    where
+        Self: CPUMemory<M>,
+        M: Memory<Data = Self::Data, Address = Self::Address>,
+        Self::Address: RegisterIncrementable,
+    {
+        let mut temp = self.program_counter_read().fetch_memory(memory);
+        temp.program_counter().increment();
+        temp
+    }
+}
+
+pub trait CPUStackPointer: CPU {
+    fn stack_pointer(&mut self) -> &mut Self::Address;
+    fn stack_pointer_read(mut self) -> Self {
+        let address = *self.stack_pointer();
+        self.load_address(address)
+    }
+    /// fixme: u16 and u8 hardcode.
+    fn stack_pointer_load_high(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.stack_pointer(), true).load(data);
+        self
+    }
+    /// fixme: u16 and u8 hardcode.
+    fn stack_pointer_load_low(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.stack_pointer(), false).load(data);
+        self
+    }
+
+    fn push<M>(mut self, memory: &mut M) -> Self
+    where
+        Self: CPUMemory<M>,
+        M: Memory<Data = Self::Data, Address = Self::Address>,
+        Self::Address: RegisterDecrementable,
+    {
+        self.stack_pointer().decrement();
+        self.stack_pointer_read().store_memory(memory)
+    }
+    fn pop<M>(self, memory: &M) -> Self
+    where
+        Self: CPUMemory<M>,
+        M: Memory<Data = Self::Data, Address = Self::Address>,
+        Self::Address: RegisterIncrementable,
+    {
+        let mut temp = self.stack_pointer_read().fetch_memory(memory);
+        temp.stack_pointer().increment();
+        temp
+    }
+}
+
+pub trait CPUJump: CPU + CPUProgramCounter {
+    fn jump(mut self, address: Self::Address) -> Self {
+        self.load_address(address)
+    }
+    /// fixme: u16 and u8 hardcode.
+    fn jump_high(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.program_counter(), true).load(data);
+        self
+    }
+    /// fixme: u16 and u8 hardcode.
+    fn jump_low(mut self) -> Self
+    where
+        Self: CPU<Address = u16, Data = u8>,
+    {
+        let data = self.data();
+        Register16In8Loader::new(self.program_counter(), false).load(data);
+        self
+    }
+    /// todo: ALUが実装できたら
+    fn jump_on(&mut self, index: Self::Address, flag: <Self::ALU as ALU>::Flag)
     where
         Self: CPUFlagRegister,
-        <Self::ALU as ALU>::FlagSet: From<Self::FlagRegisterSize>,
-    {
-        if self.flag_on(flag) {
-            self.jump(index)
-        }
-    }
+        <Self::ALU as ALU>::FlagSet: From<Self::FlagRegisterSize>;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::cpu::{CPUMemory, CPUProgramCounter, CPUStackPointer};
-    use crate::instruction::typical::*;
-    use crate::instruction::Instruction;
+    use crate::cpu::{CPUMemory, CPUProgramCounter, CPUStackPointer, CPU};
     use crate::memory::typical::Memory8Bit64KB;
     use crate::memory::Memory;
-    use crate::register::typical::{Register16Loader, Register16Reader};
-    use crate::register::{RegisterLoader, RegisterReader};
 
-    #[derive(Debug, Default)]
-    struct CPU8WithMemory {
+    #[derive(Debug, Default, Copy, Clone)]
+    struct CPU8 {
+        data: u8,
         af: u16,
         sp: u16,
         pc: u16,
-        memory: Memory8Bit64KB,
+        address: u16,
     }
 
-    impl CPU8WithMemory {
-        fn new() -> Self {
-            let mut sp = 0xfffe;
-            let mut memory = Memory8Bit64KB::default();
-            for i in 0..256 {
-                memory.store(i, i as u8);
-            }
-            Self {
-                sp,
-                memory,
-                ..Default::default()
-            }
-        }
-    }
+    impl CPU for CPU8 {
+        type Data = u8;
+        type Address = u16;
 
-    impl CPUMemory for CPU8WithMemory {
-        type MemoryAddress = <Memory8Bit64KB as Memory>::Address;
-        type MemoryData = <Memory8Bit64KB as Memory>::Data;
-
-        fn memory_store(&mut self, index: Self::MemoryAddress, data: Self::MemoryData) {
-            self.memory.store(index, data)
+        fn data(&self) -> Self::Data {
+            self.data
         }
 
-        fn memory_read(&self, index: Self::MemoryAddress) -> Self::MemoryData {
-            self.memory.read(index)
-        }
-    }
-
-    impl CPUProgramCounter for CPU8WithMemory {
-        fn program_counter_load(&mut self, bits: Self::MemoryAddress) {
-            Register16Loader::new(&mut self.pc).load(bits)
+        fn address(&self) -> Self::Address {
+            self.address
         }
 
-        fn program_counter_read(&self) -> Self::MemoryAddress {
-            Register16Reader::new(&self.pc).read()
+        fn load_data(mut self, data: Self::Data) -> Self {
+            self.data = data;
+            self
         }
 
-        fn program_fetch(&mut self) -> Self::MemoryData {
-            let index = self.program_counter_read();
-            let res = self.memory_read(index);
-            self.program_counter_load(index.wrapping_add(1));
-            res
+        fn load_address(mut self, address: Self::Address) -> Self {
+            self.address = address;
+            self
+        }
+
+        fn cycle(self) -> Self {
+            unimplemented!()
+        }
+
+        fn run(self) -> Option<Self> {
+            unimplemented!()
         }
     }
 
-    impl CPUStackPointer for CPU8WithMemory {
-        fn stack_pointer_load(&mut self, bits: Self::MemoryAddress) {
-            Register16Loader::new(&mut self.sp).load(bits)
-        }
+    impl CPUMemory<Memory8Bit64KB> for CPU8 {}
 
-        fn stack_pointer_read(&self) -> Self::MemoryAddress {
-            Register16Reader::new(&self.sp).read()
+    impl CPUProgramCounter for CPU8 {
+        fn program_counter(&mut self) -> &mut Self::Address {
+            &mut self.pc
         }
+    }
 
-        fn push(&mut self, bits: Self::MemoryData) {
-            let sp = self.stack_pointer_read().wrapping_sub(1);
-            self.stack_pointer_load(sp);
-            self.memory_store(sp, bits);
-        }
-
-        fn pop(&mut self) -> Self::MemoryData {
-            let sp = self.stack_pointer_read();
-            self.stack_pointer_load(sp.wrapping_add(1));
-            self.memory_read(sp)
+    impl CPUStackPointer for CPU8 {
+        fn stack_pointer(&mut self) -> &mut Self::Address {
+            &mut self.sp
         }
     }
 
     #[test]
     fn pc() {
-        let mut cpu = CPU8WithMemory::new();
-        assert_eq!(cpu.program_fetch(), 0);
-        assert_eq!(cpu.program_fetch(), 1);
-        assert_eq!(cpu.program_fetch(), 2);
-        assert_eq!(cpu.program_fetch(), 3);
-        Jump::new(31).execute(&mut cpu);
-        assert_eq!(cpu.program_fetch(), 31);
-        assert_eq!(cpu.program_fetch(), 32);
-        assert_eq!(cpu.program_fetch(), 33);
+        let mut memory = Memory8Bit64KB::default();
+        for i in 0..256 {
+            memory.store(i, i as u8);
+        }
+        let cpu = (0..=3).fold(CPU8::default(), |cpu, _| cpu.program_fetch(&memory));
+        println!("{:?}", cpu);
+        assert_eq!(cpu.data(), 3);
+        let cpu = (0..=123).fold(CPU8::default(), |cpu, _| cpu.program_fetch(&memory));
+        assert_eq!(cpu.data(), 123);
     }
 
     #[test]
     fn sp() {
-        let mut cpu = CPU8WithMemory::new();
-        cpu.push(3);
-        cpu.push(1);
-        cpu.push(4);
-        cpu.push(1);
-        Push::new(5).execute(&mut cpu);
-        assert_eq!(cpu.pop(), 5);
-        assert_eq!(cpu.pop(), 1);
-        cpu.push(5);
-        assert_eq!(cpu.pop(), 5);
-        assert_eq!(cpu.pop(), 4);
-        assert_eq!(cpu.pop(), 1);
-        cpu.push(5);
-        assert_eq!(cpu.pop(), 5);
-        assert_eq!(cpu.pop(), 3);
+        let mut cpu = CPU8::default();
+        let mut memory = Memory8Bit64KB::default();
+        *cpu.stack_pointer() = 256;
+        let cpu = cpu
+            .load_data(3)
+            .push(&mut memory)
+            .load_data(1)
+            .push(&mut memory)
+            .load_data(4)
+            .push(&mut memory)
+            .load_data(1)
+            .push(&mut memory)
+            .load_data(5)
+            .push(&mut memory);
+        let cpu = cpu.pop(&mut memory);
+        assert_eq!(cpu.data(), 5);
+        let cpu = cpu.pop(&mut memory);
+        assert_eq!(cpu.data(), 1);
+        let cpu = cpu.pop(&mut memory);
+        assert_eq!(cpu.data(), 4);
+        let cpu = cpu.pop(&mut memory);
+        assert_eq!(cpu.data(), 1);
+        let cpu = cpu.pop(&mut memory);
+        assert_eq!(cpu.data(), 3);
     }
 }

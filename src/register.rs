@@ -1,12 +1,13 @@
 use crate::BitwiseOps;
 
-pub trait RegisterCode {}
+pub trait RegisterCode {
+    type Register;
+}
 
-#[allow(clippy::needless_lifetimes)]
-pub trait RegisterSet<C> {
-    type Size;
-    fn load_of(&mut self, code: C, bits: Self::Size);
-    fn read_of(&self, code: C) -> Self::Size;
+pub trait RegisterSet<C: RegisterCode<Register = Self::Register>> {
+    type Register;
+    fn load_of(&mut self, code: C, bits: Self::Register);
+    fn read_of(&self, code: C) -> Self::Register;
 }
 
 pub trait Register {
@@ -14,8 +15,26 @@ pub trait Register {
     fn read(&self) -> Self;
 }
 
+pub trait RegisterIncrementable {
+    fn increment(&mut self);
+}
+
+pub trait RegisterDecrementable {
+    fn decrement(&mut self);
+}
+
 macro_rules! register_impl {
     ($($t:ty)*) => {$(
+        impl RegisterIncrementable for $t {
+            fn increment(&mut self) {
+                *self = self.wrapping_add(1)
+            }
+        }
+        impl RegisterDecrementable for $t {
+            fn decrement(&mut self) {
+                *self = self.wrapping_sub(1)
+            }
+        }
         impl Register for $t {
             fn load(&mut self, bits: Self) {
                 *self = bits;
@@ -68,6 +87,7 @@ pub mod typical {
         }
     }
 
+    /// fixme: divide into low and high Loader
     pub(crate) struct Register16In8Loader<'a> {
         register: &'a mut u16,
         low: bool,
@@ -181,10 +201,18 @@ mod tests {
         HL,
     }
 
+    impl RegisterCode for Register16Code {
+        type Register = u16;
+    }
+
     enum Register8Code {
         A,
         H,
         L,
+    }
+
+    impl RegisterCode for Register8Code {
+        type Register = u8;
     }
 
     impl Register8Code {
@@ -198,9 +226,9 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register16Code> for Register16Set {
-        type Size = u16;
+        type Register = u16;
 
-        fn load_of(&mut self, code: Register16Code, bits: Self::Size) {
+        fn load_of(&mut self, code: Register16Code, bits: Self::Register) {
             Register16Loader::new(match code {
                 Register16Code::AF => &mut self.af,
                 Register16Code::HL => &mut self.hl,
@@ -208,7 +236,7 @@ mod tests {
             .load(bits)
         }
 
-        fn read_of(&self, code: Register16Code) -> Self::Size {
+        fn read_of(&self, code: Register16Code) -> Self::Register {
             Register16Reader::new(match code {
                 Register16Code::AF => &self.af,
                 Register16Code::HL => &self.hl,
@@ -219,9 +247,9 @@ mod tests {
 
     #[allow(clippy::needless_lifetimes)]
     impl RegisterSet<Register8Code> for Register16Set {
-        type Size = u8;
+        type Register = u8;
 
-        fn load_of(&mut self, code: Register8Code, bits: Self::Size) {
+        fn load_of(&mut self, code: Register8Code, bits: Self::Register) {
             let register = match code {
                 Register8Code::A => &mut self.af,
                 Register8Code::H | Register8Code::L => &mut self.hl,
@@ -229,7 +257,7 @@ mod tests {
             Register16In8Loader::new(register, code.is_low()).load(bits);
         }
 
-        fn read_of(&self, code: Register8Code) -> Self::Size {
+        fn read_of(&self, code: Register8Code) -> Self::Register {
             let register = match code {
                 Register8Code::A => &self.af,
                 Register8Code::H | Register8Code::L => &self.hl,

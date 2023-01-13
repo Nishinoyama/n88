@@ -27,7 +27,7 @@ bitwise_ops_impl!(u8 u16 u32 u64 usize);
 
 pub mod register;
 
-pub mod instruction;
+// pub mod instruction;
 
 pub mod alu;
 

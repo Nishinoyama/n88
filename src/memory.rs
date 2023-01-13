@@ -1,8 +1,8 @@
 pub trait Memory {
     type Address;
     type Data;
-    fn read(&self, index: Self::Address) -> Self::Data;
-    fn store(&mut self, index: Self::Address, data: Self::Data);
+    fn read(&self, address: Self::Address) -> Self::Data;
+    fn store(&mut self, address: Self::Address, data: Self::Data);
 }
 
 pub mod typical {

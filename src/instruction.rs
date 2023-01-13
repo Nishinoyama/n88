@@ -1,12 +1,12 @@
 use crate::cpu::CPUMemory;
 
-pub trait Instruction<CPU> {
-    fn execute(&self, cpu: &mut CPU);
+pub trait Instruction<C> {
+    fn execute(self, cpu: C) -> C;
 }
 
-pub trait InstructionDecoder<CPU> {
+pub trait InstructionDecoder<C> {
     type InstructionSize;
-    fn decode(&mut self, data: Self::InstructionSize) -> Option<Box<dyn Instruction<CPU>>>;
+    fn decode(&mut self, data: Self::InstructionSize) -> Option<Box<dyn Instruction<C>>>;
 }
 
 pub mod typical {
@@ -14,19 +14,19 @@ pub mod typical {
     use crate::addressing::Addressing;
     use crate::alu::ALU;
     use crate::cpu::*;
+    use crate::memory::Memory;
     use crate::register::*;
 
     pub struct Jump<A> {
         address: A,
     }
 
-    impl<CPU, A> Instruction<CPU> for Jump<A>
+    impl<C, A> Instruction<C> for Jump<A>
     where
-        CPU: CPUProgramCounter<MemoryAddress = A>,
-        A: Copy,
+        C: CPUJump<Address = A>,
     {
-        fn execute(&self, cpu: &mut CPU) {
-            cpu.program_counter_load(self.address);
+        fn execute(self, cpu: C) -> C {
+            cpu.jump(self.address)
         }
     }
 
@@ -42,10 +42,10 @@ pub mod typical {
 
     impl<CPU, B> Instruction<CPU> for Push<B>
     where
-        CPU: CPUStackPointer<MemoryData = B>,
+        CPU: CPUStackPointer,
         B: Copy,
     {
-        fn execute(&self, cpu: &mut CPU) {
+        fn execute(self, cpu: &mut CPU) {
             cpu.push(self.data)
         }
     }
@@ -62,8 +62,8 @@ pub mod typical {
 
     impl<CPU, C, B> Instruction<CPU> for Pop<C>
     where
-        CPU: CPUStackPointer<MemoryData = B> + RegisterSet<C, Size = B>,
-        C: Copy,
+        CPU: CPUStackPointer + RegisterSet<C, Register = B>,
+        C: Copy + RegisterCode<Register = B>,
     {
         fn execute(&self, cpu: &mut CPU) {
             let src = cpu.pop();
@@ -101,8 +101,8 @@ pub mod typical {
 
     impl<CPU, C, B, A> Instruction<CPU> for Load<C, A>
     where
-        CPU: RegisterSet<C, Size = B>,
-        C: Copy,
+        CPU: RegisterSet<C, Register = B>,
+        C: RegisterCode<Register = B> + Copy,
         A: Addressing<CPU, Size = B> + Copy,
     {
         fn execute(&self, cpu: &mut CPU) {
@@ -122,16 +122,11 @@ pub mod typical {
         }
     }
 
-    impl<CPU, D, S, A, B> Instruction<CPU> for Store<D, S>
-    where
-        CPU: CPUMemory<MemoryAddress = A, MemoryData = B>,
-        D: Addressing<CPU, Size = A> + Copy,
-        S: Addressing<CPU, Size = B> + Copy,
-    {
-        fn execute(&self, cpu: &mut CPU) {
+    impl<C, D, S> Instruction<C> for Store<D, S> {
+        fn execute(&self, cpu: &mut C) {
             let dst = self.dst.value(cpu);
             let src = self.src.value(cpu);
-            cpu.memory_store(dst, src);
+            cpu.store_memory(dst, src);
         }
     }
 
@@ -153,25 +148,26 @@ pub mod typical {
         }
     }
 
-    impl<CPU, A, C, F, D, L, B, G> Instruction<CPU> for Arithmetic<C, F, D, L>
-    where
-        CPU: CPUAccumulator<AccSize = B>
-            + CPUFlagRegister<ALU = A, FlagRegisterSize = G>
-            + RegisterSet<D, Size = B>,
-        A: ALU<Data = B, Control = C, Flag = F>,
-        C: Copy,
-        F: Copy,
-        D: Copy,
-        L: Addressing<CPU, Size = B>,
-        G: From<A::FlagSet>,
-    {
-        fn execute(&self, cpu: &mut CPU) {
-            let rhs = self.rhs.value(cpu);
-            let (res, flags) = cpu.alu_acc_op(self.control, rhs);
-            cpu.flag_load_mask_slice(&self.flags, flags.into());
-            cpu.load_of(self.dst, res);
-        }
-    }
+    // todo: aluの（ｒｙ
+    // impl<CPU, A, C, F, D, L, B, G> Instruction<CPU> for Arithmetic<C, F, D, L>
+    // where
+    //     CPU: CPUAccumulator
+    //         + CPUFlagRegister<ALU = A, FlagRegisterSize = G>
+    //         + RegisterSet<D, Register = B>,
+    //     A: ALU<Data = B, Control = C, Flag = F>,
+    //     C: Copy,
+    //     F: Copy,
+    //     D: RegisterCode<Register = B> + Copy,
+    //     L: Addressing<CPU, Size = B>,
+    //     G: From<A::FlagSet>,
+    // {
+    //     fn execute(&self, cpu: &mut CPU) {
+    //         let rhs = self.rhs.value(cpu);
+    //         let (res, flags) = cpu.alu_acc_op(self.control, rhs);
+    //         cpu.flag_load_mask_slice(&self.flags, flags.into());
+    //         cpu.load_of(self.dst, res);
+    //     }
+    // }
 }
 
 #[cfg(test)]
